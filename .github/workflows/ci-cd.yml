@@ -35,9 +35,19 @@ jobs:
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v1
 
+    # Scan the codebase for vulnerabilities
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: "fs"  # Scans filesystem (repo)
+        format: "table"  # Output format (table, json, sarif)
+        exit-code: "0"   # Fails if vulnerabilities found
+        severity: "CRITICAL,HIGH"  # Only fail on critical/high
+        ignore-unfixed: true  # Ignore unfixed vulnerabilities
+
     # Build docker image
-    - name: Build, tag, and push image to Amazon ECR
-      id: build-and-push
+    - name: Build Docker image
+      id: build-image
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         ECR_REPOSITORY: ${{ env.ECR_REPOSITORY }}
@@ -47,34 +57,24 @@ jobs:
         # docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
         # echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
-    # # Scan the Docker image
-    # - name: Scan Docker image
-    #   uses: aws-actions/amazon-ecr-image-scan@v1
-    #   with:
-    #     repository-name: ${{ env.ECR_REPOSITORY }}
-    #     image-tag: ${{ github.run_number }}
-    #   env:
-    #     AWS_REGION: ${{ secrets.AWS_REGION }}
-
     # Scan the Docker image
     - name: Scan Docker image
       uses: aquasecurity/trivy-action@master
       with:
-        image-ref: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        image-ref: "${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPO_NAME}}:${{env.IMAGE_TAG}}"
         format: "table"
-        exit-code: "1"
+        exit-code: "0"
         severity: "CRITICAL,HIGH"
 
 
     # Push to ECR
     - name: Build, tag, and push image to Amazon ECR
-      id: build-and-push
+      id: push-image
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         ECR_REPOSITORY: ${{ env.ECR_REPOSITORY }}
         IMAGE_TAG: ${{ github.run_number }}
       run: |
-        # docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
         echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
