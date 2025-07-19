@@ -4,17 +4,17 @@ on:
   push:
     branches: [ main ]
 permissions:
-  id-token: write
-  contents: read
+  id-token: write   # Required for OIDC
+  contents: read    # Required to checkout code
 env:
   
-  ECR_REPOSITORY: dev
+  ECR_REPOSITORY: dev1
   ECS_CLUSTER: nginx-cluster
   ECS_SERVICE: nginx-service
   CONTAINER_NAME: nginx
   TASK_DEFINITION: nginx-task
-  AWS_CREDS: ${{ secrets.AWS_ROLE}}
-  AWS_REGION: ${{ secrets.AWS_REGION}}
+  AWS_CREDS: ${{ secrets.AWS_ROLE_ARN }}
+  AWS_REGION: ${{ secrets.AWS_REGION }}
 
 jobs:
   build-and-deploy:
@@ -27,8 +27,8 @@ jobs:
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        role-to-assume: ${{secrets.AWS_ROLE}}
-        aws-region: ${{ env.AWS_REGION }}
+        aws-region: ${{ secrets.AWS_REGION }}
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
 
     # Login to Amazon ECR
     - name: Login to Amazon ECR
