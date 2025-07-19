@@ -1,30 +1,29 @@
 name: Build and Deploy to ECS via ECR
 
 on:
-  workflow_dispatch:
-  # push:
-  #   branches: [ main ]
+  push:
+    branches: [ main ]
 permissions:
   id-token: write   # Required for OIDC
   contents: read    # Required to checkout code
 env:
-  
   ECR_REPOSITORY: dev1
   ECS_CLUSTER: nginx-cluster
   ECS_SERVICE: nginx-service
   CONTAINER_NAME: nginx
   TASK_DEFINITION: nginx-task
-  # AWS_CREDS: ${{ secrets.AWS_ROLE_ARN }}
   AWS_REGION: ${{ secrets.AWS_REGION }}
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    
+
     steps:
+    # Checkout the code from the repository
     - name: Checkout code
       uses: actions/checkout@v3
 
+    # Configure AWS credentials
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
@@ -36,17 +35,17 @@ jobs:
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v1
 
-    # Scan the codebase for vulnerabilities
+    # Scan Docker image for vulnerabilities
     - name: Run Trivy vulnerability scanner
       uses: aquasecurity/trivy-action@master
       with:
-        scan-type: "fs"  # Scans filesystem (repo)
-        format: "table"  # Output format (table, json, sarif)
-        exit-code: "0"   # Fails if vulnerabilities found
-        severity: "CRITICAL,HIGH"  # Only fail on critical/high
-        ignore-unfixed: true  # Ignore unfixed vulnerabilities
+        scan-type: "fs"
+        format: "table"
+        exit-code: "0"
+        severity: "CRITICAL,HIGH"
+        ignore-unfixed: true
 
-    # Build docker image
+    # Build Docker image
     - name: Build Docker image
       id: build-image
       env:
@@ -55,21 +54,9 @@ jobs:
         IMAGE_TAG: ${{ github.run_number }}
       run: |
         docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-        # docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-        # echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+        echo "IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
 
-    # Scan the Docker image
-    # - name: Scan Docker image
-    #   uses: aquasecurity/trivy-action@master
-    #   with:
-    #     image-ref: "${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPO_NAME}}:${{env.IMAGE_TAG}}"
-    #     format: "table"
-    #     exit-code: "0"
-    #     severity: "CRITICAL,HIGH"
-    #     ignore-unfixed: true
-
-
-    # Push to ECR
+    # Push Docker image to Amazon ECR
     - name: Push image to Amazon ECR
       id: push-image
       env:
@@ -78,38 +65,30 @@ jobs:
         IMAGE_TAG: ${{ github.run_number }}
       run: |
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-        echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
-    # Get the ECR image URI
-    - name: Set image URI
-      id: set-image
-      run: |
-        echo "IMAGE_URI=${{ steps.build-and-push.outputs.image }}" >> $GITHUB_ENV
-
-    # Deployment steps
+    # Update ECS task definition with new image
     - name: Download current task definition
       run: |
         aws ecs describe-task-definition --task-definition ${{ env.TASK_DEFINITION }} \
           --query taskDefinition > task-definition.json
 
+    # Update task definition with new ECR image
     - name: Update task definition with new ECR image
       run: |
-        # Install jq if not already available
-        sudo apt-get install -y jq
-        
-        # Update the image in the task definition
-        jq --arg IMAGE_URI "${{ steps.build-and-push.outputs.image}}" \
+        sudo apt-get update && sudo apt-get install -y jq
+        jq --arg IMAGE_URI "${IMAGE_URI}" \
           '.containerDefinitions[0].image = $IMAGE_URI | 
            del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)' \
           task-definition.json > register-task-definition.json
 
+    # Register new task definition
     - name: Register new task definition
+      id: register-task
       run: |
-        aws ecs register-task-definition --cli-input-json file://register-task-definition.json
-        
-        # Get the new revision number
-        echo "NEW_TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition ${{ env.TASK_DEFINITION }} --query 'taskDefinition.taskDefinitionArn' --output text)" >> $GITHUB_ENV
+        NEW_TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json file://register-task-definition.json --query 'taskDefinition.taskDefinitionArn' --output text)
+        echo "NEW_TASK_DEFINITION=$NEW_TASK_DEF_ARN" >> $GITHUB_ENV
 
+    # Update ECS service with new task definition
     - name: Update ECS service
       run: |
         aws ecs update-service \
