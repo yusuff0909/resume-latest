@@ -69,7 +69,7 @@ jobs:
 
 
     # Push to ECR
-    - name: Build, tag, and push image to Amazon ECR
+    - name: Push image to Amazon ECR
       id: push-image
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
