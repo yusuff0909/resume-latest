@@ -71,7 +71,7 @@ jobs:
       uses: aquasecurity/trivy-action@master
       with:
         scan-type: "image"
-        image-ref: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+        image-ref: ${{ env.IMAGE_URI }}
         format: "table"
         exit-code: "0"
         severity: "CRITICAL,HIGH"
