@@ -12,7 +12,7 @@ permissions:
   pull-requests: write 
 
 env:
-  AWS_REGION: ${{ secrets.AWS_REGION }}
+  AWS_REGION: us-east-1
   AWS_ROLE: ${{ secrets.AWS_ROLE_ARN }}
   ECR_REPO_NAME: dev1
   IMAGE_TAG: ${{ github.run_number }}
@@ -130,11 +130,10 @@ jobs:
           del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)' task-definition.json > register-task-definition.json
       
       - name: Register new task definition
-        id: register-task
         run: |
-          NEW_TASK_DEFINITION_ARN=$(aws ecs register-task-definition --cli-input-json file://register-task-definition.json --query 'taskDefinition.taskDefinitionArn' --output text)
-          echo "new-task-def-arn=$NEW_TASK_DEFINITION_ARN" >> $GITHUB_OUTPUT
-
+          aws ecs register-task-definition --cli-input-json file://register-task-definition.json
+          echo "NEW_TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition ${{ env.TASK_DEFINITION }} --query 'taskDefinition.taskDefinitionArn' --output text)" >> $GITHUB_ENV
+      
       - name: Update ECS service
         run: |
-          aws ecs update-service --cluster ${{ env.ECS_CLUSTER }} --service ${{ env.ECS_SERVICE }} --task-definition ${{ steps.register-task.outputs.new-task-def-arn }} --force-new-deployment
+          aws ecs update-service --cluster ${{ env.ECS_CLUSTER }} --service ${{ env.ECS_SERVICE }} --task-definition ${{ env.NEW_TASK_DEFINITION }} --force-new-deployment
